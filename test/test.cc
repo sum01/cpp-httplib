@@ -2386,9 +2386,21 @@ TEST(ServerRequestParsingTest, ChunkLengthTooHighInRequest) {
   EXPECT_EQ("HTTP/1.1 400 Bad Request", out.substr(0, 24));
 }
 
-TEST(ServerRequestParsingTest, InvalidHeaderTextWithExtraCR) {
-  test_raw_request("GET /hi HTTP/1.1\r\n"
-                   "Content-Type: text/plain\r\n\r");
+TEST(ServerRequestParsingTest, Issue396) {
+  test_raw_request(
+      "PUT /put_hi HTTP/1.1\r\n"
+      "Content-Type: multipart/form-data; boundary=----WebKitFormBoundaryO5quBRiT4G7Vm3R7\r\n"
+      "\r\n"
+      "------WebKitFormBoundaryO5quBRiT4G7Vm3R7\r\n"
+      "Content-Disposition: form-data; name=\"message\"\r\n\r\r\r\r"
+      "\r\n"
+      "Hello\r\n"
+      "------WebKitFormBoundaryO5quBRiT4G7Vm3R7\r\n"
+      "Content-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\r\r\r"
+      "Content-Type: text/plain\r\n\r\r\r\r"
+      "\r\n"
+      "aaa\r\n"
+      "------WebKitFormBoundaryO5quBRiT4G7Vm3R7--\r\n");
 }
 
 TEST(ServerStopTest, StopServerWithChunkedTransmission) {

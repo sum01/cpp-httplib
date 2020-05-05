@@ -2301,12 +2301,15 @@ public:
       }
       case 2: { // Headers
         auto pos = buf_.find(crlf_);
+        std::cout << "Begin case 2" << std::endl;
         while (pos != std::string::npos) {
+          std::cout << "In loop..." << std::endl;
           // Empty line
           if (pos == 0) {
             if (!header_callback(file_)) {
               is_valid_ = false;
               is_done_ = false;
+              std::cout << "Return case 2" << std::endl;
               return false;
             }
             buf_.erase(0, crlf_.size());
@@ -2330,6 +2333,7 @@ public:
           off_ += pos + crlf_.size();
           pos = buf_.find(crlf_);
         }
+        std::cout << "Break case 2" << std::endl;
         break;
       }
       case 3: { // Body
