@@ -277,7 +277,8 @@ struct Request {
   size_t redirect_count = CPPHTTPLIB_REDIRECT_MAX_COUNT;
   ResponseHandler response_handler;
   ContentReceiver content_receiver;
-  Progress progress;
+  Progress download_progress;
+  Progress upload_progress;
 
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
   const SSL *ssl;
@@ -577,25 +578,26 @@ public:
 
   std::shared_ptr<Response> Get(const char *path);
 
+  std::shared_ptr<Response> Get(const char *path, Progress download_progress);
+
   std::shared_ptr<Response> Get(const char *path, const Headers &headers);
 
-  std::shared_ptr<Response> Get(const char *path, Progress progress);
-
   std::shared_ptr<Response> Get(const char *path, const Headers &headers,
-                                Progress progress);
+                                Progress download_progress);
 
   std::shared_ptr<Response> Get(const char *path,
                                 ContentReceiver content_receiver);
 
+  std::shared_ptr<Response> Get(const char *path,
+                                ContentReceiver content_receiver,
+                                Progress download_progress);
+
   std::shared_ptr<Response> Get(const char *path, const Headers &headers,
                                 ContentReceiver content_receiver);
 
-  std::shared_ptr<Response>
-  Get(const char *path, ContentReceiver content_receiver, Progress progress);
-
   std::shared_ptr<Response> Get(const char *path, const Headers &headers,
                                 ContentReceiver content_receiver,
-                                Progress progress);
+                                Progress download_progress);
 
   std::shared_ptr<Response> Get(const char *path, const Headers &headers,
                                 ResponseHandler response_handler,
@@ -604,7 +606,7 @@ public:
   std::shared_ptr<Response> Get(const char *path, const Headers &headers,
                                 ResponseHandler response_handler,
                                 ContentReceiver content_receiver,
-                                Progress progress);
+                                Progress download_progress);
 
   std::shared_ptr<Response> Head(const char *path);
 
@@ -615,18 +617,38 @@ public:
   std::shared_ptr<Response> Post(const char *path, const std::string &body,
                                  const char *content_type);
 
+  std::shared_ptr<Response> Post(const char *path, const std::string &body,
+                                 const char *content_type,
+                                 Progress upload_progress);
+
   std::shared_ptr<Response> Post(const char *path, const Headers &headers,
                                  const std::string &body,
                                  const char *content_type);
 
+  std::shared_ptr<Response> Post(const char *path, const Headers &headers,
+                                 const std::string &body,
+                                 const char *content_type,
+                                 Progress upload_progress);
+
   std::shared_ptr<Response> Post(const char *path, size_t content_length,
+                                 ContentProvider content_provider,
+                                 const char *content_type);
+
+  std::shared_ptr<Response> Post(const char *path, size_t content_length,
+                                 ContentProvider content_provider,
+                                 const char *content_type,
+                                 Progress upload_progress);
+
+  std::shared_ptr<Response> Post(const char *path, const Headers &headers,
+                                 size_t content_length,
                                  ContentProvider content_provider,
                                  const char *content_type);
 
   std::shared_ptr<Response> Post(const char *path, const Headers &headers,
                                  size_t content_length,
                                  ContentProvider content_provider,
-                                 const char *content_type);
+                                 const char *content_type,
+                                 Progress upload_progress);
 
   std::shared_ptr<Response> Post(const char *path, const Params &params);
 
@@ -636,8 +658,16 @@ public:
   std::shared_ptr<Response> Post(const char *path,
                                  const MultipartFormDataItems &items);
 
+  std::shared_ptr<Response> Post(const char *path,
+                                 const MultipartFormDataItems &items,
+                                 Progress upload_progress);
+
   std::shared_ptr<Response> Post(const char *path, const Headers &headers,
                                  const MultipartFormDataItems &items);
+
+  std::shared_ptr<Response> Post(const char *path, const Headers &headers,
+                                 const MultipartFormDataItems &items,
+                                 Progress upload_progress);
 
   std::shared_ptr<Response> Put(const char *path);
 
@@ -814,7 +844,8 @@ private:
   std::shared_ptr<Response> send_with_content_provider(
       const char *method, const char *path, const Headers &headers,
       const std::string &body, size_t content_length,
-      ContentProvider content_provider, const char *content_type);
+      ContentProvider content_provider, const char *content_type,
+      Progress upload_progress);
 
   virtual bool process_and_close_socket(
       socket_t sock, size_t request_count,
@@ -855,9 +886,9 @@ inline void Post(std::vector<Request> &requests, const char *path,
   Post(requests, path, Headers(), body, content_type);
 }
 
-inline void Post(std::vector<Request> &requests,
-     const char *path, size_t content_length,
-    ContentProvider content_provider, const char *content_type) {
+inline void Post(std::vector<Request> &requests, const char *path,
+                 size_t content_length, ContentProvider content_provider,
+                 const char *content_type) {
   Request req;
   req.method = "POST";
   req.headers = Headers();
@@ -1899,7 +1930,8 @@ inline bool read_headers(Stream &strm, Headers &headers) {
 }
 
 inline bool read_content_with_length(Stream &strm, uint64_t len,
-                                     Progress progress, ContentReceiver out) {
+                                     Progress download_progress,
+                                     ContentReceiver out) {
   char buf[CPPHTTPLIB_RECV_BUFSIZ];
 
   uint64_t r = 0;
@@ -1912,8 +1944,8 @@ inline bool read_content_with_length(Stream &strm, uint64_t len,
 
     r += static_cast<uint64_t>(n);
 
-    if (progress) {
-      if (!progress(r, len)) { return false; }
+    if (download_progress) {
+      if (!download_progress(r, len)) { return false; }
     }
   }
 
@@ -1992,7 +2024,7 @@ inline bool is_chunked_transfer_encoding(const Headers &headers) {
 
 template <typename T>
 bool read_content(Stream &strm, T &x, size_t payload_max_length, int &status,
-                  Progress progress, ContentReceiver receiver) {
+                  Progress download_progress, ContentReceiver receiver) {
 
   ContentReceiver out = [&](const char *buf, size_t n) {
     return receiver(buf, n);
@@ -2035,7 +2067,7 @@ bool read_content(Stream &strm, T &x, size_t payload_max_length, int &status,
       skip_content_with_length(strm, len);
       ret = false;
     } else if (len > 0) {
-      ret = read_content_with_length(strm, len, progress, out);
+      ret = read_content_with_length(strm, len, download_progress, out);
     }
   }
 
@@ -3328,7 +3360,13 @@ inline bool Server::write_response(Stream &strm, bool last_connection,
   // Body
   if (req.method != "HEAD") {
     if (!res.body.empty()) {
-      if (!strm.write(res.body)) { return false; }
+      size_t offset = 0;
+      size_t end_offset = res.body.size();
+      while (offset < end_offset) {
+        auto len = strm.write(res.body.data() + offset, end_offset - offset);
+        if (len <= 0) { return false; }
+        offset += static_cast<size_t>(len);
+      }
     } else if (res.content_provider) {
       if (!write_content_with_provider(strm, req, res, boundary,
                                        content_type)) {
@@ -4097,8 +4135,8 @@ inline bool Client::write_request(Stream &strm, const Request &req,
 
       DataSink data_sink;
       data_sink.write = [&](const char *d, size_t l) {
-        auto written_length = strm.write(d, l);
-        offset += static_cast<size_t>(written_length);
+        auto len = strm.write(d, l);
+        offset += static_cast<size_t>(len);
       };
       data_sink.is_writable = [&](void) { return strm.is_writable(); };
 
@@ -4107,7 +4145,17 @@ inline bool Client::write_request(Stream &strm, const Request &req,
       }
     }
   } else {
-    strm.write(req.body);
+    size_t offset = 0;
+    size_t end_offset = req.body.size();
+    while (offset < end_offset) {
+      auto len = strm.write(req.body.data() + offset, end_offset - offset);
+      if (len <= 0) { return false; }
+      offset += static_cast<size_t>(len);
+
+      if (req.upload_progress) {
+        if (!req.upload_progress(offset, end_offset)) { return false; }
+      }
+    }
   }
 
   return true;
@@ -4116,11 +4164,13 @@ inline bool Client::write_request(Stream &strm, const Request &req,
 inline std::shared_ptr<Response> Client::send_with_content_provider(
     const char *method, const char *path, const Headers &headers,
     const std::string &body, size_t content_length,
-    ContentProvider content_provider, const char *content_type) {
+    ContentProvider content_provider, const char *content_type,
+    Progress upload_progress) {
   Request req;
   req.method = method;
   req.headers = headers;
   req.path = path;
+  req.upload_progress = upload_progress;
 
   if (content_type) { req.headers.emplace("Content-Type", content_type); }
 
@@ -4197,7 +4247,7 @@ inline bool Client::process_request(Stream &strm, const Request &req,
 
     int dummy_status;
     if (!detail::read_content(strm, res, (std::numeric_limits<size_t>::max)(),
-                              dummy_status, req.progress, out)) {
+                              dummy_status, req.download_progress, out)) {
       return false;
     }
   }
@@ -4226,8 +4276,8 @@ inline std::shared_ptr<Response> Client::Get(const char *path) {
 }
 
 inline std::shared_ptr<Response> Client::Get(const char *path,
-                                             Progress progress) {
-  return Get(path, Headers(), std::move(progress));
+                                             Progress download_progress) {
+  return Get(path, Headers(), std::move(download_progress));
 }
 
 inline std::shared_ptr<Response> Client::Get(const char *path,
@@ -4235,13 +4285,14 @@ inline std::shared_ptr<Response> Client::Get(const char *path,
   return Get(path, headers, Progress());
 }
 
-inline std::shared_ptr<Response>
-Client::Get(const char *path, const Headers &headers, Progress progress) {
+inline std::shared_ptr<Response> Client::Get(const char *path,
+                                             const Headers &headers,
+                                             Progress download_progress) {
   Request req;
   req.method = "GET";
   req.path = path;
   req.headers = headers;
-  req.progress = std::move(progress);
+  req.download_progress = std::move(download_progress);
 
   auto res = std::make_shared<Response>();
   return send(req, *res) ? res : nullptr;
@@ -4254,9 +4305,9 @@ inline std::shared_ptr<Response> Client::Get(const char *path,
 
 inline std::shared_ptr<Response> Client::Get(const char *path,
                                              ContentReceiver content_receiver,
-                                             Progress progress) {
+                                             Progress download_progress) {
   return Get(path, Headers(), nullptr, std::move(content_receiver),
-             std::move(progress));
+             std::move(download_progress));
 }
 
 inline std::shared_ptr<Response> Client::Get(const char *path,
@@ -4268,9 +4319,9 @@ inline std::shared_ptr<Response> Client::Get(const char *path,
 inline std::shared_ptr<Response> Client::Get(const char *path,
                                              const Headers &headers,
                                              ContentReceiver content_receiver,
-                                             Progress progress) {
+                                             Progress download_progress) {
   return Get(path, headers, nullptr, std::move(content_receiver),
-             std::move(progress));
+             std::move(download_progress));
 }
 
 inline std::shared_ptr<Response> Client::Get(const char *path,
@@ -4285,14 +4336,14 @@ inline std::shared_ptr<Response> Client::Get(const char *path,
                                              const Headers &headers,
                                              ResponseHandler response_handler,
                                              ContentReceiver content_receiver,
-                                             Progress progress) {
+                                             Progress download_progress) {
   Request req;
   req.method = "GET";
   req.path = path;
   req.headers = headers;
   req.response_handler = std::move(response_handler);
   req.content_receiver = std::move(content_receiver);
-  req.progress = std::move(progress);
+  req.download_progress = std::move(download_progress);
 
   auto res = std::make_shared<Response>();
   return send(req, *res) ? res : nullptr;
@@ -4325,11 +4376,24 @@ inline std::shared_ptr<Response> Client::Post(const char *path,
 }
 
 inline std::shared_ptr<Response> Client::Post(const char *path,
+                                              const std::string &body,
+                                              const char *content_type,
+                                              Progress upload_progress) {
+  return Post(path, Headers(), body, content_type, upload_progress);
+}
+
+inline std::shared_ptr<Response> Client::Post(const char *path,
                                               const Headers &headers,
                                               const std::string &body,
                                               const char *content_type) {
+  return Post(path, headers, body, content_type, nullptr);
+}
+
+inline std::shared_ptr<Response>
+Client::Post(const char *path, const Headers &headers, const std::string &body,
+             const char *content_type, Progress upload_progress) {
   return send_with_content_provider("POST", path, headers, body, 0, nullptr,
-                                    content_type);
+                                    content_type, upload_progress);
 }
 
 inline std::shared_ptr<Response> Client::Post(const char *path,
@@ -4344,12 +4408,30 @@ inline std::shared_ptr<Response> Client::Post(const char *path,
   return Post(path, Headers(), content_length, content_provider, content_type);
 }
 
+inline std::shared_ptr<Response> Client::Post(const char *path,
+                                              size_t content_length,
+                                              ContentProvider content_provider,
+                                              const char *content_type,
+                                              Progress upload_progress) {
+  return Post(path, Headers(), content_length, content_provider, content_type,
+              upload_progress);
+}
+
 inline std::shared_ptr<Response>
 Client::Post(const char *path, const Headers &headers, size_t content_length,
              ContentProvider content_provider, const char *content_type) {
   return send_with_content_provider("POST", path, headers, std::string(),
                                     content_length, content_provider,
-                                    content_type);
+                                    content_type, nullptr);
+}
+
+inline std::shared_ptr<Response>
+Client::Post(const char *path, const Headers &headers, size_t content_length,
+             ContentProvider content_provider, const char *content_type,
+             Progress upload_progress) {
+  return send_with_content_provider("POST", path, headers, std::string(),
+                                    content_length, content_provider,
+                                    content_type, upload_progress);
 }
 
 inline std::shared_ptr<Response>
@@ -4360,12 +4442,24 @@ Client::Post(const char *path, const Headers &headers, const Params &params) {
 
 inline std::shared_ptr<Response>
 Client::Post(const char *path, const MultipartFormDataItems &items) {
-  return Post(path, Headers(), items);
+  return Post(path, Headers(), items, nullptr);
+}
+
+inline std::shared_ptr<Response>
+Client::Post(const char *path, const MultipartFormDataItems &items,
+             Progress upload_progress) {
+  return Post(path, Headers(), items, upload_progress);
 }
 
 inline std::shared_ptr<Response>
 Client::Post(const char *path, const Headers &headers,
              const MultipartFormDataItems &items) {
+  return Post(path, headers, items, nullptr);
+}
+
+inline std::shared_ptr<Response>
+Client::Post(const char *path, const Headers &headers,
+             const MultipartFormDataItems &items, Progress upload_progress) {
   auto boundary = detail::make_multipart_data_boundary();
 
   std::string body;
@@ -4387,7 +4481,7 @@ Client::Post(const char *path, const Headers &headers,
   body += "--" + boundary + "--\r\n";
 
   std::string content_type = "multipart/form-data; boundary=" + boundary;
-  return Post(path, headers, body, content_type.c_str());
+  return Post(path, headers, body, content_type.c_str(), upload_progress);
 }
 
 inline std::shared_ptr<Response> Client::Put(const char *path) {
@@ -4405,7 +4499,7 @@ inline std::shared_ptr<Response> Client::Put(const char *path,
                                              const std::string &body,
                                              const char *content_type) {
   return send_with_content_provider("PUT", path, headers, body, 0, nullptr,
-                                    content_type);
+                                    content_type, nullptr);
 }
 
 inline std::shared_ptr<Response> Client::Put(const char *path,
@@ -4420,7 +4514,7 @@ Client::Put(const char *path, const Headers &headers, size_t content_length,
             ContentProvider content_provider, const char *content_type) {
   return send_with_content_provider("PUT", path, headers, std::string(),
                                     content_length, content_provider,
-                                    content_type);
+                                    content_type, nullptr);
 }
 
 inline std::shared_ptr<Response> Client::Put(const char *path,
@@ -4445,7 +4539,7 @@ inline std::shared_ptr<Response> Client::Patch(const char *path,
                                                const std::string &body,
                                                const char *content_type) {
   return send_with_content_provider("PATCH", path, headers, body, 0, nullptr,
-                                    content_type);
+                                    content_type, nullptr);
 }
 
 inline std::shared_ptr<Response> Client::Patch(const char *path,
@@ -4460,7 +4554,7 @@ Client::Patch(const char *path, const Headers &headers, size_t content_length,
               ContentProvider content_provider, const char *content_type) {
   return send_with_content_provider("PATCH", path, headers, std::string(),
                                     content_length, content_provider,
-                                    content_type);
+                                    content_type, nullptr);
 }
 
 inline std::shared_ptr<Response> Client::Delete(const char *path) {
