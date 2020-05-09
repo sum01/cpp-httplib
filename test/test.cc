@@ -2088,7 +2088,7 @@ TEST_F(ServerTest, KeepAlive) {
   Get(requests, "/hi");
   Get(requests, "/not-exist");
   Post(requests, "/empty", "", "text/plain");
-  Post(requests, "/empty", 0, [&](size_t offset, size_t length, httplib::DataSink &sink){}, "text/plain");
+  Post(requests, "/empty", 0, [&](size_t, size_t, httplib::DataSink &){}, "text/plain");
 
   std::vector<Response> responses;
   auto ret = cli_.send(requests, responses);
